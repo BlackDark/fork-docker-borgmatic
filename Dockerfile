@@ -57,6 +57,7 @@ RUN <<EOF
         openssl             \
         pkgconfig           \
         postgresql-client   \
+        rclone              \
         sqlite              \
         sshfs               \
         tzdata              \
