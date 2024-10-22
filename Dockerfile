@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:latest
 
-FROM python:3.12.5-alpine3.19 as base
+FROM python:3.13.0-alpine3.20 as base
 ARG TARGETARCH
 
 LABEL maintainer='borgmatic-collective'
@@ -11,7 +11,7 @@ ENV S6_OVERLAY_ARCH=x86_64
 FROM base AS base-arm64
 ENV S6_OVERLAY_ARCH=aarch64
 
-FROM base-${TARGETARCH}${TARGETVARIANT}
+FROM base-${TARGETARCH}${TARGETVARIANT} AS deps
 
 ARG S6_OVERLAY_VERSION=3.1.6.2
 
@@ -39,7 +39,7 @@ RUN <<EOF
     tar -C / -Jxpf /tmp/s6-overlay-symlinks-noarch.tar.xz
     tar -C / -Jxpf /tmp/s6-overlay-symlinks-arch.tar.xz
 
-    apk add --no-cache -U   \
+    apk add --no-cache -U --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community  \
         bash                \
         bash-completion     \
         bash-doc            \
@@ -65,15 +65,39 @@ RUN <<EOF
     apk upgrade --no-cache
 EOF
 
+FROM deps as compile
+
+RUN <<EOF
+    set -xe
+    apk add --no-cache -U --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community  \
+        libssl3           \
+        lz4-dev \
+        acl-dev   \
+        openssl-dev             \
+        build-base linux-headers gcc musl-dev \
+        xxhash-dev  \
+        zstd-dev 
+    apk upgrade --no-cache
+EOF
+
 COPY --link requirements.txt /
+
+ENV PATH="/opt/venv/bin:$PATH"
 
 RUN --mount=type=cache,id=pip,target=/root/.cache,sharing=locked \
     <<EOF
     set -xe
+    python3 -m venv /opt/venv
     python3 -m pip install -U pip
     python3 -m pip install -Ur requirements.txt
     borgmatic --bash-completion > "$(pkg-config --variable=completionsdir bash-completion)"/borgmatic
 EOF
+
+FROM deps as prod
+
+COPY --from=compile /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
 
 COPY --chmod=744 --link root/ /
 
